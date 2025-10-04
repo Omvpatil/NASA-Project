@@ -1,6 +1,27 @@
 # 📡 Complete API Request/Response Examples
 
-This document contains detailed examples for all 8 API endpoints with complete request/response payloads.
+This document contains detailed examples for all API endpoints with complete request/response payloads.
+
+## Endpoint Summary
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | API information and available endpoints |
+| GET | `/health` | Health check status |
+| GET | `/database-status` | Vector database status |
+| GET | `/papers` | List all papers in vector store |
+| GET | `/models` | List available LLM models |
+| POST | `/database/load-csv` | Load CSV into SQLite database |
+| GET | `/database/stats` | SQLite database statistics |
+| GET | `/database/papers/loaded` | Get loaded papers from database |
+| GET | `/database/papers/unloaded` | Get unloaded papers from database |
+| GET | `/database/papers/all` | Get all papers from database |
+| GET | `/database/papers/search` | Search papers in database by title |
+| POST | `/database/append-csv` | Append new CSV to database |
+| POST | `/load-papers` | Scrape and load papers with embeddings |
+| POST | `/search` | Search papers (with optional LLM) |
+| POST | `/search/on-demand` | On-demand search with image extraction |
+| POST | `/reset-database` | Reset all databases |
 
 ---
 
@@ -18,16 +39,13 @@ curl http://localhost:8000/
 {
     "message": "NASA Space Biology Knowledge Engine API",
     "version": "1.0.0",
-    "description": "RAG-powered search API for space biology research papers",
-    "docs": "/docs",
     "endpoints": {
         "health": "/health",
-        "search": "/search",
+        "search": "/search (POST)",
+        "load_papers": "/load-papers (POST)",
         "database_status": "/database-status",
-        "papers": "/papers",
-        "models": "/models",
-        "load_papers": "/load-papers",
-        "reset": "/reset-database"
+        "papers_list": "/papers",
+        "reset_database": "/reset-database (POST)"
     }
 }
 ```
@@ -42,25 +60,13 @@ curl http://localhost:8000/
 curl http://localhost:8000/health
 ```
 
-### Response (Healthy)
+### Response
 
 ```json
 {
     "status": "healthy",
-    "database": "loaded",
-    "embeddings": "initialized",
-    "timestamp": "2025-10-03T19:45:30.123456"
-}
-```
-
-### Response (Database Not Loaded)
-
-```json
-{
-    "status": "healthy",
-    "database": "not_loaded",
-    "embeddings": "not_initialized",
-    "timestamp": "2025-10-03T19:45:30.123456"
+    "database_loaded": true,
+    "timestamp": "2025-10-05T19:45:30.123456"
 }
 ```
 
@@ -74,40 +80,15 @@ curl http://localhost:8000/health
 curl http://localhost:8000/database-status
 ```
 
-### Response (Database Loaded)
+### Response
 
 ```json
 {
     "status": "loaded",
-    "total_documents": 45,
-    "total_papers": 10,
     "collection_name": "space_biology_papers",
     "persist_directory": "./chroma_db",
-    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
-    "embedding_dimension": 384,
-    "sample_papers": [
-        {
-            "title": "Microgravity induces pelvic bone loss through osteoclastic activity",
-            "pmcid": "PMC8234567",
-            "source": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8234567/"
-        },
-        {
-            "title": "Mice in Bion-M 1 space mission: proteomic analysis of liver",
-            "pmcid": "PMC7654321",
-            "source": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7654321/"
-        }
-    ]
-}
-```
-
-### Response (Database Empty)
-
-```json
-{
-    "status": "empty",
-    "total_documents": 0,
-    "total_papers": 0,
-    "message": "Database is empty. Use /load-papers to load papers."
+    "total_chunks": 823,
+    "total_papers": 156
 }
 ```
 
@@ -130,20 +111,17 @@ curl http://localhost:8000/papers
         {
             "title": "Microgravity induces pelvic bone loss through osteoclastic activity",
             "pmcid": "PMC8234567",
-            "source": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8234567/",
-            "chunks": 5
+            "source": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8234567/"
         },
         {
             "title": "Mice in Bion-M 1 space mission: proteomic analysis of liver",
             "pmcid": "PMC7654321",
-            "source": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7654321/",
-            "chunks": 4
+            "source": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7654321/"
         },
         {
             "title": "Effects of spaceflight on the circadian rhythm",
             "pmcid": "PMC9876543",
-            "source": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9876543/",
-            "chunks": 6
+            "source": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9876543/"
         }
     ]
 }
@@ -163,25 +141,24 @@ curl http://localhost:8000/models
 
 ```json
 {
-    "available_models": [
+    "models": [
         {
             "name": "gemini-2.5-flash",
-            "description": "Fast and efficient model (default)",
-            "recommended": true
+            "description": "Latest Gemini 2.5 (Fast, Experimental)"
+        },
+        {
+            "name": "gemini-2.5-pro",
+            "description": "Gemini 2.5 Pro (Balanced)"
         },
         {
             "name": "gemini-1.5-pro",
-            "description": "More capable model for complex queries",
-            "recommended": false
+            "description": "Gemini 1.5 Pro (Most Capable)"
         },
         {
-            "name": "gemini-1.5-flash",
-            "description": "Balanced performance and speed",
-            "recommended": false
+            "name": "gemini-1.0-pro",
+            "description": "Gemini 1.0 Pro (Legacy)"
         }
-    ],
-    "default_model": "gemini-2.5-flash",
-    "note": "Requires Google API key. Get one at: https://aistudio.google.com/apikey"
+    ]
 }
 ```
 
@@ -405,7 +382,40 @@ curl -X POST "http://localhost:8000/search" \
 
 ---
 
-## 7. POST `/load-papers` - Load Papers from CSV
+## 7. POST `/database/load-csv` - Load CSV to SQLite Database
+
+### Description
+Loads the CSV file from GitHub into the SQLite database without scraping papers. This is the first step before loading full papers.
+
+### Request
+
+```bash
+curl -X POST "http://localhost:8000/database/load-csv" \
+  -H "Content-Type: application/json"
+```
+
+### Response
+
+```json
+{
+    "status": "success",
+    "message": "CSV loaded into database",
+    "stats": {
+        "total_papers": 607,
+        "new_papers_added": 607,
+        "duplicate_papers_skipped": 0,
+        "papers_already_loaded": 0,
+        "papers_unloaded": 607
+    }
+}
+```
+
+---
+
+## 8. POST `/load-papers` - Load Papers from CSV
+
+### Description
+Scrapes full papers and creates embeddings. Must run `/database/load-csv` first.
 
 ### Example 1: Load 10 Papers
 
@@ -426,40 +436,24 @@ curl -X POST "http://localhost:8000/load-papers" \
     "status": "success",
     "papers_loaded": 10,
     "chunks_created": 47,
-    "message": "Successfully loaded 10 papers and created 47 chunks",
-    "papers": [
-        {
-            "title": "Microgravity induces pelvic bone loss through osteoclastic activity",
-            "pmcid": "PMC8234567",
-            "chunks": 5
-        },
-        {
-            "title": "Mice in Bion-M 1 space mission: proteomic analysis of liver",
-            "pmcid": "PMC7654321",
-            "chunks": 4
-        },
-        {
-            "title": "Effects of spaceflight on the circadian rhythm",
-            "pmcid": "PMC9876543",
-            "chunks": 6
-        }
-        // ... 7 more papers
-    ],
-    "time_taken": "125.5 seconds"
+    "message": "Successfully loaded 10 papers and created 47 chunks"
 }
 ```
 
-#### Response (Error - CSV Not Found)
+#### Response (Error - No Papers in Database)
 
 ```json
 {
-    "detail": "CSV file not found. Please check the path: https://raw.githubusercontent.com/jgalazka/SB_publications/main/SB_publications.csv"
+    "status": "success",
+    "papers_loaded": 0,
+    "chunks_created": 0,
+    "message": "All papers already loaded or no papers available. Load CSV first using /database/load-csv"
 }
 ```
 
 ---
 
-### Example 2: Load All Papers
+### Example 2: Load All Available Papers
 
 #### Request
 
@@ -467,7 +461,7 @@ curl -X POST "http://localhost:8000/load-papers" \
 curl -X POST "http://localhost:8000/load-papers" \
   -H "Content-Type: application/json" \
   -d '{
-    "num_papers": 0
+    "num_papers": 607
   }'
 ```
 
@@ -478,17 +472,16 @@ curl -X POST "http://localhost:8000/load-papers" \
     "status": "success",
     "papers_loaded": 156,
     "chunks_created": 823,
-    "message": "Successfully loaded 156 papers and created 823 chunks",
-    "papers": [
-        // ... all papers
-    ],
-    "time_taken": "1845.2 seconds"
+    "message": "Successfully loaded 156 papers and created 823 chunks"
 }
 ```
 
 ---
 
-## 8. POST `/reset-database` - Reset Database
+## 9. POST `/reset-database` - Reset Database
+
+### Description
+Resets both the vector database and SQLite tracking database.
 
 ### Request
 
@@ -497,31 +490,209 @@ curl -X POST "http://localhost:8000/reset-database" \
   -H "Content-Type: application/json"
 ```
 
-### Response (Success)
+### Response
 
 ```json
 {
     "status": "success",
-    "message": "Database reset successfully. All papers and embeddings have been deleted.",
-    "previous_count": 45,
-    "current_count": 0
-}
-```
-
-### Response (Database Already Empty)
-
-```json
-{
-    "status": "success",
-    "message": "Database was already empty",
-    "previous_count": 0,
-    "current_count": 0
+    "message": "Both databases reset successfully. Use /load-papers to create new databases."
 }
 ```
 
 ---
 
-## 9. POST `/search/on-demand` - On-Demand Search with Image Extraction
+## 10. GET `/database/stats` - Get Database Statistics
+
+### Request
+
+```bash
+curl http://localhost:8000/database/stats
+```
+
+### Response
+
+```json
+{
+    "total_papers": 607,
+    "loaded_papers": 156,
+    "unloaded_papers": 451,
+    "total_chunks_created": 823,
+    "database_path": "./papers.db"
+}
+```
+
+---
+
+## 11. GET `/database/papers/loaded` - Get Loaded Papers
+
+### Request
+
+```bash
+curl "http://localhost:8000/database/papers/loaded?limit=5"
+```
+
+### Response
+
+```json
+{
+    "count": 5,
+    "papers": [
+        {
+            "id": 1,
+            "title": "Microgravity induces pelvic bone loss through osteoclastic activity",
+            "pmcid": "PMC8234567",
+            "link": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8234567/",
+            "isLoaded": true,
+            "loadedAt": "2025-10-05T10:30:00",
+            "chunksCreated": 5
+        },
+        {
+            "id": 2,
+            "title": "Mice in Bion-M 1 space mission: proteomic analysis of liver",
+            "pmcid": "PMC7654321",
+            "link": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7654321/",
+            "isLoaded": true,
+            "loadedAt": "2025-10-05T10:31:00",
+            "chunksCreated": 4
+        }
+    ]
+}
+```
+
+---
+
+## 12. GET `/database/papers/unloaded` - Get Unloaded Papers
+
+### Request
+
+```bash
+curl "http://localhost:8000/database/papers/unloaded?limit=3"
+```
+
+### Response
+
+```json
+{
+    "count": 3,
+    "papers": [
+        {
+            "id": 157,
+            "title": "Effects of spaceflight on cardiovascular system",
+            "pmcid": "PMC9999999",
+            "link": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9999999/",
+            "isLoaded": false,
+            "loadedAt": null,
+            "chunksCreated": 0
+        }
+    ]
+}
+```
+
+---
+
+## 13. GET `/database/papers/all` - Get All Papers
+
+### Request
+
+```bash
+curl http://localhost:8000/database/papers/all
+```
+
+### Response
+
+```json
+{
+    "count": 607,
+    "papers": [
+        {
+            "id": 1,
+            "title": "Microgravity induces pelvic bone loss through osteoclastic activity",
+            "pmcid": "PMC8234567",
+            "link": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8234567/",
+            "isLoaded": true,
+            "loadedAt": "2025-10-05T10:30:00",
+            "chunksCreated": 5
+        }
+        // ... 606 more papers
+    ]
+}
+```
+
+---
+
+## 14. GET `/database/papers/search` - Search Papers in Database
+
+### Request
+
+```bash
+curl "http://localhost:8000/database/papers/search?query=bone%20loss&loaded_only=true"
+```
+
+### Response
+
+```json
+{
+    "query": "bone loss",
+    "count": 3,
+    "papers": [
+        {
+            "id": 1,
+            "title": "Microgravity induces pelvic bone loss through osteoclastic activity",
+            "pmcid": "PMC8234567",
+            "link": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8234567/",
+            "isLoaded": true,
+            "loadedAt": "2025-10-05T10:30:00",
+            "chunksCreated": 5
+        },
+        {
+            "id": 45,
+            "title": "Bone remodeling during spaceflight: mechanisms and countermeasures",
+            "pmcid": "PMC9123456",
+            "link": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9123456/",
+            "isLoaded": true,
+            "loadedAt": "2025-10-05T10:35:00",
+            "chunksCreated": 6
+        }
+    ]
+}
+```
+
+---
+
+## 15. POST `/database/append-csv` - Append CSV to Database
+
+### Description
+Append papers from a new CSV file to the existing database.
+
+### Request
+
+```bash
+curl -X POST "http://localhost:8000/database/append-csv" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "csv_url": "https://example.com/new_papers.csv"
+  }'
+```
+
+### Response
+
+```json
+{
+    "status": "success",
+    "message": "CSV appended successfully",
+    "stats": {
+        "total_papers": 650,
+        "new_papers_added": 43,
+        "duplicate_papers_skipped": 0,
+        "papers_already_loaded": 156,
+        "papers_unloaded": 494
+    }
+}
+```
+
+---
+
+## 16. POST `/search/on-demand` - On-Demand Search with Image Extraction
 
 ### Description
 
@@ -534,7 +705,7 @@ Advanced search that:
 
 ### Request
 
-````bash
+```bash
 curl -X POST "http://localhost:8000/search/on-demand" \
   -H "Content-Type: application/json" \
   -d '{
@@ -544,7 +715,9 @@ curl -X POST "http://localhost:8000/search/on-demand" \
     "google_api_key": "YOUR_API_KEY",
     "model_name": "gemini-2.5-flash"
   }'
+```
 
+### Response
 
 ```json
 {
@@ -576,9 +749,12 @@ curl -X POST "http://localhost:8000/search/on-demand" \
     "papers_newly_scraped": 2,
     "papers_already_loaded": 3,
     "query": "How does microgravity affect bone density?",
-    "timestamp": "2025-10-04T10:30:00.123456"
+    "timestamp": "2025-10-05T10:30:00.123456"
 }
 ```
+
+### Python Example
+
 ```python
 import requests
 
@@ -674,6 +850,45 @@ class NASARAGClient:
         response = requests.get(f"{self.base_url}/models")
         return response.json()
 
+    def load_csv_to_database(self) -> Dict[str, Any]:
+        """Load CSV into SQLite database"""
+        response = requests.post(f"{self.base_url}/database/load-csv")
+        return response.json()
+
+    def get_database_stats(self) -> Dict[str, Any]:
+        """Get database statistics"""
+        response = requests.get(f"{self.base_url}/database/stats")
+        return response.json()
+
+    def get_loaded_papers(self, limit: Optional[int] = None) -> Dict[str, Any]:
+        """Get loaded papers from database"""
+        params = {"limit": limit} if limit else {}
+        response = requests.get(f"{self.base_url}/database/papers/loaded", params=params)
+        return response.json()
+
+    def get_unloaded_papers(self, limit: Optional[int] = None) -> Dict[str, Any]:
+        """Get unloaded papers from database"""
+        params = {"limit": limit} if limit else {}
+        response = requests.get(f"{self.base_url}/database/papers/unloaded", params=params)
+        return response.json()
+
+    def get_all_papers_from_db(self) -> Dict[str, Any]:
+        """Get all papers from database"""
+        response = requests.get(f"{self.base_url}/database/papers/all")
+        return response.json()
+
+    def search_papers_in_db(self, query: str, loaded_only: bool = False) -> Dict[str, Any]:
+        """Search papers in database by title"""
+        params = {"query": query, "loaded_only": loaded_only}
+        response = requests.get(f"{self.base_url}/database/papers/search", params=params)
+        return response.json()
+
+    def append_csv(self, csv_url: str) -> Dict[str, Any]:
+        """Append papers from new CSV to database"""
+        payload = {"csv_url": csv_url}
+        response = requests.post(f"{self.base_url}/database/append-csv", json=payload)
+        return response.json()
+
     def search(
         self,
         query: str,
@@ -699,6 +914,25 @@ class NASARAGClient:
         response = requests.post(f"{self.base_url}/search", json=payload)
         return response.json()
 
+    def on_demand_search(
+        self,
+        query: str,
+        num_results: int = 5,
+        use_llm: bool = True,
+        google_api_key: Optional[str] = None,
+        model_name: str = "gemini-2.5-flash"
+    ) -> Dict[str, Any]:
+        """On-demand search with image extraction"""
+        payload = {
+            "query": query,
+            "num_results": num_results,
+            "use_llm": use_llm,
+            "google_api_key": google_api_key,
+            "model_name": model_name
+        }
+        response = requests.post(f"{self.base_url}/search/on-demand", json=payload)
+        return response.json()
+
     def load_papers(self, num_papers: int = 10) -> Dict[str, Any]:
         """Load papers from CSV"""
         payload = {"num_papers": num_papers}
@@ -718,14 +952,30 @@ if __name__ == "__main__":
     # 1. Check health
     print("Health:", client.health_check())
 
-    # 2. Load papers (if needed)
-    status = client.database_status()
-    if status.get("total_documents", 0) == 0:
-        print("Loading papers...")
+    # 2. Load CSV to database
+    print("\nLoading CSV to database...")
+    csv_result = client.load_csv_to_database()
+    print(f"Stats: {csv_result['stats']}")
+
+    # 3. Check database stats
+    stats = client.get_database_stats()
+    print(f"\nDatabase stats: {stats}")
+
+    # 4. Load papers (if needed)
+    if stats.get("unloaded_papers", 0) > 0:
+        print("\nLoading papers...")
         result = client.load_papers(num_papers=10)
         print(f"Loaded {result['papers_loaded']} papers")
 
-    # 3. Search without LLM
+    # 5. Get loaded papers
+    loaded = client.get_loaded_papers(limit=5)
+    print(f"\nLoaded papers: {loaded['count']}")
+
+    # 6. Search in database
+    db_search = client.search_papers_in_db("bone", loaded_only=True)
+    print(f"\nDatabase search results: {db_search['count']} papers")
+
+    # 7. Search without LLM
     results = client.search(
         query="bone loss in space",
         num_results=5,
@@ -733,7 +983,7 @@ if __name__ == "__main__":
     )
     print(f"\nFound {results['num_results']} papers")
 
-    # 4. Search with LLM
+    # 8. Search with LLM
     results = client.search(
         query="How does microgravity affect bones?",
         num_results=5,
@@ -742,7 +992,19 @@ if __name__ == "__main__":
     )
     print(f"\nAI Answer: {results['answer']}")
 
-    # 5. Search with keyword filter
+    # 9. On-demand search with images
+    on_demand_results = client.on_demand_search(
+        query="bone density mechanisms in space",
+        num_results=3,
+        use_llm=True,
+        google_api_key="YOUR_API_KEY"
+    )
+    print(f"\nOn-demand search:")
+    print(f"  Papers newly scraped: {on_demand_results['papers_newly_scraped']}")
+    print(f"  Papers already loaded: {on_demand_results['papers_already_loaded']}")
+    print(f"  Images found: {len(on_demand_results['images_found'])}")
+
+    # 10. Search with keyword filter
     results = client.search(
         query="space mission findings",
         num_results=10,
@@ -776,6 +1038,49 @@ class NASARAGClient {
         return await response.json();
     }
 
+    async loadCSVToDatabase() {
+        const response = await fetch(`${this.baseURL}/database/load-csv`, {
+            method: "POST",
+        });
+        return await response.json();
+    }
+
+    async getDatabaseStats() {
+        const response = await fetch(`${this.baseURL}/database/stats`);
+        return await response.json();
+    }
+
+    async getLoadedPapers(limit = null) {
+        const url = limit 
+            ? `${this.baseURL}/database/papers/loaded?limit=${limit}`
+            : `${this.baseURL}/database/papers/loaded`;
+        const response = await fetch(url);
+        return await response.json();
+    }
+
+    async getUnloadedPapers(limit = null) {
+        const url = limit 
+            ? `${this.baseURL}/database/papers/unloaded?limit=${limit}`
+            : `${this.baseURL}/database/papers/unloaded`;
+        const response = await fetch(url);
+        return await response.json();
+    }
+
+    async searchPapersInDB(query, loadedOnly = false) {
+        const url = `${this.baseURL}/database/papers/search?query=${encodeURIComponent(query)}&loaded_only=${loadedOnly}`;
+        const response = await fetch(url);
+        return await response.json();
+    }
+
+    async appendCSV(csvUrl) {
+        const response = await fetch(`${this.baseURL}/database/append-csv`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ csv_url: csvUrl }),
+        });
+        return await response.json();
+    }
+
     async search({
         query,
         numResults = 10,
@@ -803,11 +1108,39 @@ class NASARAGClient {
         return await response.json();
     }
 
+    async onDemandSearch({
+        query,
+        numResults = 5,
+        useLLM = true,
+        googleApiKey = null,
+        modelName = "gemini-2.5-flash",
+    }) {
+        const response = await fetch(`${this.baseURL}/search/on-demand`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                query,
+                num_results: numResults,
+                use_llm: useLLM,
+                google_api_key: googleApiKey,
+                model_name: modelName,
+            }),
+        });
+        return await response.json();
+    }
+
     async loadPapers(numPapers = 10) {
         const response = await fetch(`${this.baseURL}/load-papers`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ num_papers: numPapers }),
+        });
+        return await response.json();
+    }
+
+    async resetDatabase() {
+        const response = await fetch(`${this.baseURL}/reset-database`, {
+            method: "POST",
         });
         return await response.json();
     }
@@ -821,7 +1154,25 @@ class NASARAGClient {
     const health = await client.healthCheck();
     console.log("Health:", health);
 
-    // Search
+    // Load CSV
+    const csvResult = await client.loadCSVToDatabase();
+    console.log("CSV loaded:", csvResult.stats);
+
+    // Get database stats
+    const stats = await client.getDatabaseStats();
+    console.log("Database stats:", stats);
+
+    // Load papers
+    if (stats.unloaded_papers > 0) {
+        const loadResult = await client.loadPapers(10);
+        console.log("Loaded papers:", loadResult.papers_loaded);
+    }
+
+    // Search in database
+    const dbSearch = await client.searchPapersInDB("bone", true);
+    console.log("Database search:", dbSearch.count, "papers");
+
+    // Search with LLM
     const results = await client.search({
         query: "bone loss in microgravity",
         numResults: 5,
@@ -829,6 +1180,17 @@ class NASARAGClient {
         googleApiKey: "YOUR_API_KEY",
     });
     console.log("Answer:", results.answer);
+
+    // On-demand search
+    const onDemandResults = await client.onDemandSearch({
+        query: "bone density in space",
+        numResults: 3,
+        useLLM: true,
+        googleApiKey: "YOUR_API_KEY",
+    });
+    console.log("On-demand results:");
+    console.log("  Newly scraped:", onDemandResults.papers_newly_scraped);
+    console.log("  Images found:", onDemandResults.images_found.length);
 })();
 ```
 
@@ -848,21 +1210,33 @@ API_KEY="YOUR_GOOGLE_API_KEY"
 echo "=== Health Check ==="
 curl -s $BASE_URL/health | jq '.'
 
-# 2. Check database status
-echo -e "\n=== Database Status ==="
-curl -s $BASE_URL/database-status | jq '.'
+# 2. Load CSV into database
+echo -e "\n=== Loading CSV to Database ==="
+curl -s -X POST "$BASE_URL/database/load-csv" | jq '.'
 
-# 3. Load papers if empty
+# 3. Check database stats
+echo -e "\n=== Database Stats ==="
+curl -s $BASE_URL/database/stats | jq '.'
+
+# 4. Load papers (scrape full content)
 echo -e "\n=== Loading Papers ==="
 curl -s -X POST "$BASE_URL/load-papers" \
   -H "Content-Type: application/json" \
   -d '{"num_papers": 10}' | jq '.'
 
-# 4. List papers
-echo -e "\n=== List Papers ==="
-curl -s $BASE_URL/papers | jq '.papers[] | {title, pmcid, chunks}'
+# 5. Check vector database status
+echo -e "\n=== Vector Database Status ==="
+curl -s $BASE_URL/database-status | jq '.'
 
-# 5. Basic search
+# 6. List loaded papers
+echo -e "\n=== Loaded Papers ==="
+curl -s "$BASE_URL/database/papers/loaded?limit=5" | jq '.papers[] | {title, pmcid, chunksCreated}'
+
+# 7. List papers
+echo -e "\n=== List Papers ==="
+curl -s $BASE_URL/papers | jq '.papers[] | {title, pmcid}'
+
+# 8. Basic search
 echo -e "\n=== Basic Search ==="
 curl -s -X POST "$BASE_URL/search" \
   -H "Content-Type: application/json" \
@@ -872,7 +1246,7 @@ curl -s -X POST "$BASE_URL/search" \
     "use_llm": false
   }' | jq '.source_documents[] | .metadata.title'
 
-# 6. Search with LLM
+# 9. Search with LLM
 echo -e "\n=== Search with AI Answer ==="
 curl -s -X POST "$BASE_URL/search" \
   -H "Content-Type: application/json" \
@@ -883,7 +1257,7 @@ curl -s -X POST "$BASE_URL/search" \
     \"google_api_key\": \"$API_KEY\"
   }" | jq '.answer'
 
-# 7. Keyword filtered search
+# 10. Keyword filtered search
 echo -e "\n=== Keyword Filtered Search ==="
 curl -s -X POST "$BASE_URL/search" \
   -H "Content-Type: application/json" \
@@ -895,22 +1269,118 @@ curl -s -X POST "$BASE_URL/search" \
     \"use_keyword_filter\": true,
     \"keyword_filter\": \"Bion, ISS\"
   }" | jq '.source_documents[] | .metadata.title'
+
+# 11. Search papers in database
+echo -e "\n=== Search Papers in Database ==="
+curl -s "$BASE_URL/database/papers/search?query=bone&loaded_only=true" | jq '.'
+
+# 12. On-demand search with images
+echo -e "\n=== On-Demand Search ==="
+curl -s -X POST "$BASE_URL/search/on-demand" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"query\": \"bone density in space\",
+    \"num_results\": 3,
+    \"use_llm\": true,
+    \"google_api_key\": \"$API_KEY\"
+  }" | jq '{answer: .answer, images_found: .images_found, papers_newly_scraped: .papers_newly_scraped}'
+```
+
+---
+
+## API Workflow
+
+### Initial Setup
+
+1. **Load CSV to Database**
+```bash
+curl -X POST "http://localhost:8000/database/load-csv"
+```
+
+2. **Check Database Stats**
+```bash
+curl http://localhost:8000/database/stats
+```
+
+3. **Load Papers (Scrape Full Content)**
+```bash
+curl -X POST "http://localhost:8000/load-papers" \
+  -H "Content-Type: application/json" \
+  -d '{"num_papers": 10}'
+```
+
+4. **Verify Database Status**
+```bash
+curl http://localhost:8000/database-status
+```
+
+### Search Operations
+
+1. **Basic Search**
+```bash
+curl -X POST "http://localhost:8000/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "bone loss in space",
+    "num_results": 5,
+    "use_llm": false
+  }'
+```
+
+2. **Search with AI Answer**
+```bash
+curl -X POST "http://localhost:8000/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "How does microgravity affect bones?",
+    "num_results": 5,
+    "use_llm": true,
+    "google_api_key": "YOUR_API_KEY"
+  }'
+```
+
+3. **On-Demand Search (with Images)**
+```bash
+curl -X POST "http://localhost:8000/search/on-demand" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "bone density mechanisms",
+    "num_results": 5,
+    "use_llm": true,
+    "google_api_key": "YOUR_API_KEY"
+  }'
 ```
 
 ---
 
 ## Testing Checklist
 
--   [ ] **GET /health** - Returns healthy status
--   [ ] **GET /database-status** - Shows correct document count
--   [ ] **GET /papers** - Lists all loaded papers
--   [ ] **GET /models** - Returns available models
--   [ ] **POST /search** (no LLM) - Returns document results
--   [ ] **POST /search** (with LLM) - Returns AI answer + sources
--   [ ] **POST /search** (keyword filter) - Filters by title keywords
--   [ ] **POST /search** (MMR) - Returns diverse results
--   [ ] **POST /load-papers** - Successfully loads papers
--   [ ] **POST /reset-database** - Clears all documents
+### Core Endpoints
+- [ ] **GET /** - Returns API info
+- [ ] **GET /health** - Returns healthy status
+- [ ] **GET /database-status** - Shows correct chunk count
+- [ ] **GET /papers** - Lists all loaded papers
+- [ ] **GET /models** - Returns available models
+
+### Database Management
+- [ ] **POST /database/load-csv** - Loads CSV into SQLite
+- [ ] **GET /database/stats** - Shows database statistics
+- [ ] **GET /database/papers/loaded** - Lists loaded papers
+- [ ] **GET /database/papers/unloaded** - Lists unloaded papers
+- [ ] **GET /database/papers/all** - Lists all papers
+- [ ] **GET /database/papers/search** - Searches papers by title
+- [ ] **POST /database/append-csv** - Appends new CSV
+
+### Paper Loading
+- [ ] **POST /load-papers** - Successfully loads papers
+- [ ] **POST /reset-database** - Clears all databases
+
+### Search Features
+- [ ] **POST /search** (no LLM) - Returns document results
+- [ ] **POST /search** (with LLM) - Returns AI answer + sources
+- [ ] **POST /search** (keyword filter) - Filters by title keywords
+- [ ] **POST /search** (MMR) - Returns diverse results
+- [ ] **POST /search/on-demand** - Scrapes and returns with images
 
 ---
 
