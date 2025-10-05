@@ -4,24 +4,24 @@ This document contains detailed examples for all API endpoints with complete req
 
 ## Endpoint Summary
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/` | API information and available endpoints |
-| GET | `/health` | Health check status |
-| GET | `/database-status` | Vector database status |
-| GET | `/papers` | List all papers in vector store |
-| GET | `/models` | List available LLM models |
-| POST | `/database/load-csv` | Load CSV into SQLite database |
-| GET | `/database/stats` | SQLite database statistics |
-| GET | `/database/papers/loaded` | Get loaded papers from database |
-| GET | `/database/papers/unloaded` | Get unloaded papers from database |
-| GET | `/database/papers/all` | Get all papers from database |
-| GET | `/database/papers/search` | Search papers in database by title |
-| POST | `/database/append-csv` | Append new CSV to database |
-| POST | `/load-papers` | Scrape and load papers with embeddings |
-| POST | `/search` | Search papers (with optional LLM) |
-| POST | `/search/on-demand` | On-demand search with image extraction |
-| POST | `/reset-database` | Reset all databases |
+| Method | Endpoint                    | Description                             |
+| ------ | --------------------------- | --------------------------------------- |
+| GET    | `/`                         | API information and available endpoints |
+| GET    | `/health`                   | Health check status                     |
+| GET    | `/database-status`          | Vector database status                  |
+| GET    | `/papers`                   | List all papers in vector store         |
+| GET    | `/models`                   | List available LLM models               |
+| POST   | `/database/load-csv`        | Load CSV into SQLite database           |
+| GET    | `/database/stats`           | SQLite database statistics              |
+| GET    | `/database/papers/loaded`   | Get loaded papers from database         |
+| GET    | `/database/papers/unloaded` | Get unloaded papers from database       |
+| GET    | `/database/papers/all`      | Get all papers from database            |
+| GET    | `/database/papers/search`   | Search papers in database by title      |
+| POST   | `/database/append-csv`      | Append new CSV to database              |
+| POST   | `/load-papers`              | Scrape and load papers with embeddings  |
+| POST   | `/search`                   | Search papers (with optional LLM)       |
+| POST   | `/search/on-demand`         | On-demand search with image extraction  |
+| POST   | `/reset-database`           | Reset all databases                     |
 
 ---
 
@@ -385,6 +385,7 @@ curl -X POST "http://localhost:8000/search" \
 ## 7. POST `/database/load-csv` - Load CSV to SQLite Database
 
 ### Description
+
 Loads the CSV file from GitHub into the SQLite database without scraping papers. This is the first step before loading full papers.
 
 ### Request
@@ -415,6 +416,7 @@ curl -X POST "http://localhost:8000/database/load-csv" \
 ## 8. POST `/load-papers` - Load Papers from CSV
 
 ### Description
+
 Scrapes full papers and creates embeddings. Must run `/database/load-csv` first.
 
 ### Example 1: Load 10 Papers
@@ -481,6 +483,7 @@ curl -X POST "http://localhost:8000/load-papers" \
 ## 9. POST `/reset-database` - Reset Database
 
 ### Description
+
 Resets both the vector database and SQLite tracking database.
 
 ### Request
@@ -662,6 +665,7 @@ curl "http://localhost:8000/database/papers/search?query=bone%20loss&loaded_only
 ## 15. POST `/database/append-csv` - Append CSV to Database
 
 ### Description
+
 Append papers from a new CSV file to the existing database.
 
 ### Request
@@ -790,7 +794,7 @@ for img_data in result['images_found']:
 {
     "detail": "Vector database not loaded. Please load papers first using /load-papers endpoint."
 }
-````
+```
 
 ### 422 - Validation Error (Invalid Request)
 
@@ -1051,7 +1055,7 @@ class NASARAGClient {
     }
 
     async getLoadedPapers(limit = null) {
-        const url = limit 
+        const url = limit
             ? `${this.baseURL}/database/papers/loaded?limit=${limit}`
             : `${this.baseURL}/database/papers/loaded`;
         const response = await fetch(url);
@@ -1059,7 +1063,7 @@ class NASARAGClient {
     }
 
     async getUnloadedPapers(limit = null) {
-        const url = limit 
+        const url = limit
             ? `${this.baseURL}/database/papers/unloaded?limit=${limit}`
             : `${this.baseURL}/database/papers/unloaded`;
         const response = await fetch(url);
@@ -1067,7 +1071,9 @@ class NASARAGClient {
     }
 
     async searchPapersInDB(query, loadedOnly = false) {
-        const url = `${this.baseURL}/database/papers/search?query=${encodeURIComponent(query)}&loaded_only=${loadedOnly}`;
+        const url = `${this.baseURL}/database/papers/search?query=${encodeURIComponent(
+            query
+        )}&loaded_only=${loadedOnly}`;
         const response = await fetch(url);
         return await response.json();
     }
@@ -1293,16 +1299,19 @@ curl -s -X POST "$BASE_URL/search/on-demand" \
 ### Initial Setup
 
 1. **Load CSV to Database**
+
 ```bash
 curl -X POST "http://localhost:8000/database/load-csv"
 ```
 
 2. **Check Database Stats**
+
 ```bash
 curl http://localhost:8000/database/stats
 ```
 
 3. **Load Papers (Scrape Full Content)**
+
 ```bash
 curl -X POST "http://localhost:8000/load-papers" \
   -H "Content-Type: application/json" \
@@ -1310,6 +1319,7 @@ curl -X POST "http://localhost:8000/load-papers" \
 ```
 
 4. **Verify Database Status**
+
 ```bash
 curl http://localhost:8000/database-status
 ```
@@ -1317,6 +1327,7 @@ curl http://localhost:8000/database-status
 ### Search Operations
 
 1. **Basic Search**
+
 ```bash
 curl -X POST "http://localhost:8000/search" \
   -H "Content-Type: application/json" \
@@ -1328,6 +1339,7 @@ curl -X POST "http://localhost:8000/search" \
 ```
 
 2. **Search with AI Answer**
+
 ```bash
 curl -X POST "http://localhost:8000/search" \
   -H "Content-Type: application/json" \
@@ -1340,6 +1352,7 @@ curl -X POST "http://localhost:8000/search" \
 ```
 
 3. **On-Demand Search (with Images)**
+
 ```bash
 curl -X POST "http://localhost:8000/search/on-demand" \
   -H "Content-Type: application/json" \
@@ -1356,31 +1369,35 @@ curl -X POST "http://localhost:8000/search/on-demand" \
 ## Testing Checklist
 
 ### Core Endpoints
-- [ ] **GET /** - Returns API info
-- [ ] **GET /health** - Returns healthy status
-- [ ] **GET /database-status** - Shows correct chunk count
-- [ ] **GET /papers** - Lists all loaded papers
-- [ ] **GET /models** - Returns available models
+
+-   [ ] **GET /** - Returns API info
+-   [ ] **GET /health** - Returns healthy status
+-   [ ] **GET /database-status** - Shows correct chunk count
+-   [ ] **GET /papers** - Lists all loaded papers
+-   [ ] **GET /models** - Returns available models
 
 ### Database Management
-- [ ] **POST /database/load-csv** - Loads CSV into SQLite
-- [ ] **GET /database/stats** - Shows database statistics
-- [ ] **GET /database/papers/loaded** - Lists loaded papers
-- [ ] **GET /database/papers/unloaded** - Lists unloaded papers
-- [ ] **GET /database/papers/all** - Lists all papers
-- [ ] **GET /database/papers/search** - Searches papers by title
-- [ ] **POST /database/append-csv** - Appends new CSV
+
+-   [ ] **POST /database/load-csv** - Loads CSV into SQLite
+-   [ ] **GET /database/stats** - Shows database statistics
+-   [ ] **GET /database/papers/loaded** - Lists loaded papers
+-   [ ] **GET /database/papers/unloaded** - Lists unloaded papers
+-   [ ] **GET /database/papers/all** - Lists all papers
+-   [ ] **GET /database/papers/search** - Searches papers by title
+-   [ ] **POST /database/append-csv** - Appends new CSV
 
 ### Paper Loading
-- [ ] **POST /load-papers** - Successfully loads papers
-- [ ] **POST /reset-database** - Clears all databases
+
+-   [ ] **POST /load-papers** - Successfully loads papers
+-   [ ] **POST /reset-database** - Clears all databases
 
 ### Search Features
-- [ ] **POST /search** (no LLM) - Returns document results
-- [ ] **POST /search** (with LLM) - Returns AI answer + sources
-- [ ] **POST /search** (keyword filter) - Filters by title keywords
-- [ ] **POST /search** (MMR) - Returns diverse results
-- [ ] **POST /search/on-demand** - Scrapes and returns with images
+
+-   [ ] **POST /search** (no LLM) - Returns document results
+-   [ ] **POST /search** (with LLM) - Returns AI answer + sources
+-   [ ] **POST /search** (keyword filter) - Filters by title keywords
+-   [ ] **POST /search** (MMR) - Returns diverse results
+-   [ ] **POST /search/on-demand** - Scrapes and returns with images
 
 ---
 

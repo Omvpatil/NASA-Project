@@ -11,9 +11,11 @@ from langchain.docstore.document import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
 import time
+import json
 from datetime import datetime
 from database_manager import PaperDatabaseManager
 
@@ -102,12 +104,15 @@ class LoadPapersResponse(BaseModel):
     chunks_created: int
     message: str
 
+
 class OnDemandSearchQuery(BaseModel):
     query: str = Field(..., description="Search query")
-    num_results: int = Field(5, ge=1, le=20, description="Number of papers to retrieve")
+    num_results: int = Field(
+        5, ge=1, le=20, description="Number of papers to retrieve")
     use_llm: bool = Field(True, description="Generate LLM answer")
     google_api_key: Optional[str] = Field(None, description="Google API key")
     model_name: str = Field("gemini-2.5-flash", description="LLM model")
+
 
 class DatabaseStatus(BaseModel):
     status: str
@@ -149,19 +154,20 @@ def scrape_article_text_with_images(article_url: str) -> Optional[tuple]:
 
         paragraphs = main_content.find_all("p")
         text = "\n\n".join(p.get_text() for p in paragraphs)
-        
+
         # Get images
         image_urls = scrape_article_images(article_url)
-        
+
         return (text.strip(), image_urls)
     except Exception as e:
         print(f"Error scraping {article_url}: {e}")
         return None
 
+
 def scrape_article_images(article_url: str) -> List[str]:
     """
     Scrape image URLs from PMC article
-    
+
     Returns:
         List of image URLs found in the article
     """
@@ -172,42 +178,46 @@ def scrape_article_images(article_url: str) -> List[str]:
         page = requests.get(article_url, headers=headers, timeout=30)
         page.raise_for_status()
         soup = BeautifulSoup(page.text, "html.parser")
-        
+
         image_urls = []
-        
+
         # Find all figure images
-        figures = soup.find_all('figure') or soup.find_all('div', class_='figure')
+        figures = soup.find_all("figure") or soup.find_all(
+            "div", class_="figure")
         for fig in figures:
-            img = fig.find('img')
-            if img and img.get('src'):
-                img_url = img['src']
+            img = fig.find("img")
+            if img and img.get("src"):
+                img_url = img["src"]
                 # Make absolute URL if relative
-                if img_url.startswith('//'):
-                    img_url = 'https:' + img_url
-                elif img_url.startswith('/'):
+                if img_url.startswith("//"):
+                    img_url = "https:" + img_url
+                elif img_url.startswith("/"):
                     from urllib.parse import urljoin
+
                     img_url = urljoin(article_url, img_url)
                 image_urls.append(img_url)
-        
+
         # Also check for images in main content
         main_content = soup.find(id="maincontent") or soup.find("article")
         if main_content:
-            imgs = main_content.find_all('img')
+            imgs = main_content.find_all("img")
             for img in imgs:
-                if img.get('src'):
-                    img_url = img['src']
-                    if img_url.startswith('//'):
-                        img_url = 'https:' + img_url
-                    elif img_url.startswith('/'):
+                if img.get("src"):
+                    img_url = img["src"]
+                    if img_url.startswith("//"):
+                        img_url = "https:" + img_url
+                    elif img_url.startswith("/"):
                         from urllib.parse import urljoin
+
                         img_url = urljoin(article_url, img_url)
                     if img_url not in image_urls:
                         image_urls.append(img_url)
-        
+
         return image_urls
     except Exception as e:
         print(f"Error scraping images from {article_url}: {e}")
         return []
+
 
 def scrape_article_abstract(article_url: str):
     headers = {
@@ -225,7 +235,6 @@ def scrape_article_abstract(article_url: str):
             and "abstract" in tag.string.lower()
         )
 
-        
         if heading:
             abstract_paragraph = heading.find_next("p")
             if abstract_paragraph:
@@ -290,15 +299,16 @@ async def startup_event():
     # Initialize embeddings
     embeddings = init_embeddings()
     print("✅ Embeddings initialized")
-    
+
     # Try to load secondary (abstract) vector store
     global secondary_vector_store
     sec_vs, sec_count = load_existing_vectorstore(
-     embeddings, "./small_persistent_db", "search_semantics"
+        embeddings, "./small_persistent_db", "search_semantics"
     )
     if sec_vs:
         secondary_vector_store = sec_vs
-        print(f"✅ Loaded secondary (abstract) database with {sec_count} chunks")
+        print(f"✅ Loaded secondary (abstract) database with {
+              sec_count} chunks")
     else:
         print("⚠️ No secondary database found. Abstracts not indexed yet.")
 
@@ -324,7 +334,7 @@ async def root():
         "version": "1.0.0",
         "endpoints": {
             "health": "/health",
-            "search": "/search (POST)",
+            "search": "/search (POST) - Smart search with automatic paper scraping and images",
             "load_papers": "/load-papers (POST)",
             "database_status": "/database-status",
             "papers_list": "/papers",
@@ -390,192 +400,118 @@ async def list_papers():
     return {"total_papers": len(unique_papers), "papers": list(unique_papers.values())}
 
 
-@app.post("/search", response_model=SearchResponse)
-async def search_papers(request: SearchQuery):
-    """Search papers with optional LLM-generated answer"""
-    if not vector_store:
-        raise HTTPException(
-            status_code=404, detail="Database not loaded. Please load papers first."
-        )
+# Legacy search endpoint removed - use /search/on-demand instead
 
-    # Retrieve documents
-    retrieve_k = (
-        request.num_results * 5 if request.use_keyword_filter else request.num_results
-    )
 
-    retriever = vector_store.as_retriever(
-        search_type=request.search_method, search_kwargs={"k": retrieve_k}
-    )
-
-    retrieved_docs = retriever.invoke(request.query)
-
-    # Apply keyword filter if enabled
-    if request.use_keyword_filter and request.keyword_filter:
-        keywords = [
-            kw.strip().lower() for kw in request.keyword_filter.split(",") if kw.strip()
-        ]
-        filtered_docs = []
-        for doc in retrieved_docs:
-            title = doc.metadata.get("title", "").lower()
-            if any(kw in title for kw in keywords):
-                filtered_docs.append(doc)
-        filtered_docs = filtered_docs[: request.num_results]
-        retrieved_docs = filtered_docs
-
-    # Format documents
-    source_docs = []
-    for doc in retrieved_docs:
-        source_docs.append(
-            {
-                "page_content": doc.page_content[:500] + "..."
-                if len(doc.page_content) > 500
-                else doc.page_content,
-                "metadata": {
-                    "title": doc.metadata.get("title", "Unknown"),
-                    "pmcid": doc.metadata.get("pmcid", "N/A"),
-                    "source": doc.metadata.get("source", "Unknown"),
-                },
-            }
-        )
-
-    # Generate LLM answer if requested
-    answer = None
-    if request.use_llm and request.google_api_key:
-        llm = ChatGoogleGenerativeAI(
-            model=request.model_name,
-            temperature=0,
-            google_api_key=request.google_api_key,
-        )
-
-        # Format context
-        context_parts = []
-        for i, doc in enumerate(retrieved_docs, 1):
-            title = doc.metadata.get("title", "Unknown Title")
-            pmcid = doc.metadata.get("pmcid", "Unknown")
-            source = doc.metadata.get("source", "Unknown")
-            context_parts.append(
-                f"[Document {i}]\n"
-                f"Title: {title}\n"
-                f"PMCID: {pmcid}\n"
-                f"Source: {source}\n"
-                f"Content: {doc.page_content}\n"
-            )
-
-        formatted_context = "\n---\n".join(context_parts)
-
-        # Create prompt
-        prompt_template = PromptTemplate(
-            template=(
-                "You are an expert assistant analyzing NASA space biology research papers. "
-                "Use the following scientific papers to answer the question. "
-                "ALWAYS cite the paper Title and PMCID when referencing information.\n\n"
-                "Available Papers:\n{context}\n\n"
-                "Question: {question}\n\n"
-                "Instructions:\n"
-                "1. Provide a detailed, scientifically accurate answer\n"
-                "2. Cite papers using format: (Title: [Paper Title], PMCID: [PMCID])\n"
-                "3. If information is not in the provided papers, clearly state that\n\n"
-                "Answer:"
-            ),
-            input_variables=["context", "question"],
-        )
-
-        prompt = prompt_template.format(
-            context=formatted_context, question=request.query
-        )
-        response = llm.invoke(prompt)
-        answer = response.content
-
-    return SearchResponse(
-        answer=answer,
-        source_documents=source_docs,
-        query=request.query,
-        num_results=len(source_docs),
-        timestamp=datetime.now().isoformat(),
-    )
-
-@app.post("/search/on-demand")
-async def on_demand_search(request: OnDemandSearchQuery):
+@app.post("/search")
+async def search_papers(request: OnDemandSearchQuery):
     """
-    On-demand search: 
-    1. Search abstracts in secondary DB
-    2. Get paper links
-    3. Scrape full papers with images
-    4. Generate answer
+    Smart search endpoint:
+    1. First search in main vector store (full papers) if available
+    2. If not enough results, search abstracts in secondary DB
+    3. Scrape full papers with images (if not already loaded)
+    4. Generate answer with citations and images
     """
     global secondary_vector_store, vector_store, embeddings, db_manager
-    
-    if not secondary_vector_store:
-        raise HTTPException(
-            status_code=404, 
-            detail="Secondary database not loaded. Run abstract indexing first."
-        )
-    
-    # Step 1: Search in abstract database
-    retriever = secondary_vector_store.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": request.num_results}
-    )
-    abstract_docs = retriever.invoke(request.query)
-    
-    # Step 2: Extract paper links
-    paper_links = []
-    for doc in abstract_docs:
-        link = doc.metadata.get('source')
-        pmcid = doc.metadata.get('pmcid')
-        title = doc.metadata.get('title')
-        if link:
-            paper_links.append({
-                'link': link,
-                'pmcid': pmcid,
-                'title': title
-            })
-    
-    # Step 3: Check which papers are already loaded
+
+    all_relevant_docs = []
     papers_to_scrape = []
     loaded_papers = []
-    
-    for paper in paper_links:
-        db_paper = db_manager.get_paper_by_link(paper['link'])
-        if db_paper and db_paper['isLoaded']:
-            loaded_papers.append(db_paper)
-        else:
-            papers_to_scrape.append(paper)
-    
-    # Step 4: Scrape full content + images for unloaded papers
-    docs = []
     image_data = []
-    
+    paper_images_map = {}
+
+    # Step 1: Try to search in main vector store first (full papers)
+    if vector_store:
+        try:
+            # Search full paper vector store
+            main_retriever = vector_store.as_retriever(
+                search_type="similarity", search_kwargs={"k": request.num_results}
+            )
+            main_docs = main_retriever.invoke(request.query)
+            
+            if len(main_docs) >= request.num_results:
+                # We have enough results from full papers, no need to scrape
+                all_relevant_docs = main_docs
+                loaded_papers = [{"title": doc.metadata.get("title"), "pmcid": doc.metadata.get("pmcid")} 
+                                for doc in main_docs]
+                print(f"✅ Found {len(main_docs)} results in main vector store (full papers)")
+            else:
+                # Not enough results, will search abstracts below
+                all_relevant_docs = main_docs
+                print(f"⚠️ Only found {len(main_docs)} results in main store, searching abstracts...")
+        except Exception as e:
+            print(f"Error searching main vector store: {e}")
+
+    # Step 2: If not enough results, search in abstract database
+    if len(all_relevant_docs) < request.num_results and secondary_vector_store:
+        retriever = secondary_vector_store.as_retriever(
+            search_type="similarity", search_kwargs={"k": request.num_results}
+        )
+        abstract_docs = retriever.invoke(request.query)
+
+        # Step 3: Extract paper links
+        paper_links = []
+        for doc in abstract_docs:
+            link = doc.metadata.get("source")
+            pmcid = doc.metadata.get("pmcid")
+            title = doc.metadata.get("title")
+            if link:
+                paper_links.append({"link": link, "pmcid": pmcid, "title": title})
+
+        # Step 4: Check which papers are already loaded
+        for paper in paper_links:
+            db_paper = db_manager.get_paper_by_link(paper["link"])
+            if db_paper and db_paper["isLoaded"]:
+                # Get chunks from already loaded paper
+                results = vector_store.similarity_search(
+                    paper["title"], k=5, filter={"pmcid": paper["pmcid"]}
+                ) if vector_store else []
+                all_relevant_docs.extend(results)
+                loaded_papers.append(db_paper)
+            else:
+                papers_to_scrape.append(paper)
+
+    elif not secondary_vector_store and len(all_relevant_docs) == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="No search databases available. Run abstract indexing first.",
+        )
+
+    # Step 5: Scrape full content + images for unloaded papers
+    docs = []
+
     for paper in papers_to_scrape:
         print(f"📄 Scraping full paper: {paper['title'][:50]}...")
-        result = scrape_article_text_with_images(paper['link'])
-        
+        result = scrape_article_text_with_images(paper["link"])
+
         if not result:
             continue
-            
+
         text, image_urls = result
-        
-        # Create document with image URLs in metadata
+
+        # Store image URLs in separate map (will be preserved)
+        paper_images_map[paper["title"]] = image_urls
+
+        # Create document with image URLs as JSON string (ChromaDB compatible)
         doc = Document(
             page_content=text,
             metadata={
-                "title": paper['title'],
-                "source": paper['link'],
-                "pmcid": paper['pmcid'] or "",
-                "image_urls": image_urls  # Store image URLs
-            }
+                "title": paper["title"],
+                "source": paper["link"],
+                "pmcid": paper["pmcid"] or "",
+                "image_urls_json": json.dumps(image_urls) if image_urls else "",  # Store as JSON string
+            },
         )
         docs.append(doc)
-        
+
         if image_urls:
-            image_data.append({
-                'pmcid': paper['pmcid'],
-                'title': paper['title'],
-                'images': image_urls
-            })
-        
+            image_data.append(
+                {"pmcid": paper["pmcid"],
+                    "title": paper["title"], "images": image_urls}
+            )
+
         time.sleep(1)
-    
+
     # Step 5: Create chunks and add to main vector store
     if docs:
         splitter = RecursiveCharacterTextSplitter(
@@ -586,35 +522,38 @@ async def on_demand_search(request: OnDemandSearchQuery):
         )
         chunks = splitter.split_documents(docs)
         
+        # No need to filter metadata since we're using JSON strings for images
+
         if vector_store:
             vector_store.add_documents(chunks)
         else:
             vector_store = create_vectorstore(
                 chunks, embeddings, PERSIST_DIRECTORY, COLLECTION_NAME
             )
-        
+
         # Mark as loaded in database
         for i, paper in enumerate(papers_to_scrape):
-            paper_chunks = [c for c in chunks if c.metadata.get('title') == paper['title']]
-            db_manager.mark_as_loaded(paper['link'], chunks_created=len(paper_chunks))
+            paper_chunks = [
+                c for c in chunks if c.metadata.get("title") == paper["title"]
+            ]
+            db_manager.mark_as_loaded(
+                paper["link"], chunks_created=len(paper_chunks))
             print(f"  ✅ Marked as loaded: {paper['title'][:50]}")
-    
+
     # Step 6: Get all relevant chunks (newly loaded + already loaded)
     all_relevant_docs = []
-    
+
     # Get chunks from newly scraped papers
     all_relevant_docs.extend(chunks if docs else [])
-    
+
     # Get chunks from already loaded papers
     for loaded_paper in loaded_papers:
         # Query main vector store for this paper's chunks
         results = vector_store.similarity_search(
-            loaded_paper['title'],
-            k=5,
-            filter={"pmcid": loaded_paper['pmcid']}
+            loaded_paper["title"], k=5, filter={"pmcid": loaded_paper["pmcid"]}
         )
         all_relevant_docs.extend(results)
-    
+
     # Step 7: Generate LLM answer with images
     answer = None
     if request.use_llm and request.google_api_key and all_relevant_docs:
@@ -623,23 +562,34 @@ async def on_demand_search(request: OnDemandSearchQuery):
             temperature=0,
             google_api_key=request.google_api_key,
         )
-        
+
         # Format context with images
         context_parts = []
         for i, doc in enumerate(all_relevant_docs[:10], 1):
             title = doc.metadata.get("title", "Unknown")
             pmcid = doc.metadata.get("pmcid", "Unknown")
             source = doc.metadata.get("source", "Unknown")
-            img_urls = doc.metadata.get("image_urls", [])
             
-            context = f"[Document {i}]\nTitle: {title}\nPMCID: {pmcid}\nSource: {source}\n"
+            # Parse image URLs from JSON string in metadata
+            image_urls_json = doc.metadata.get("image_urls_json", "")
+            try:
+                img_urls = json.loads(image_urls_json) if image_urls_json else []
+            except:
+                # Fallback to map if JSON parsing fails (for newly scraped papers)
+                img_urls = paper_images_map.get(title, [])
+
+            context = (
+                f"[Document {i}]\nTitle: {title}\nPMCID: {
+                    pmcid}\nSource: {source}\n"
+            )
             if img_urls:
-                context += f"Images: {', '.join(img_urls[:3])}\n"  # First 3 images
+                # First 3 images
+                context += f"Images: {', '.join(img_urls[:3])}\n"
             context += f"Content: {doc.page_content}\n"
             context_parts.append(context)
-        
+
         formatted_context = "\n---\n".join(context_parts)
-        
+
         prompt_template = PromptTemplate(
             template=(
                 "You are an expert assistant analyzing NASA space biology research papers. "
@@ -647,28 +597,44 @@ async def on_demand_search(request: OnDemandSearchQuery):
                 "ALWAYS cite paper Title and PMCID. If images are available, mention them.\n\n"
                 "Available Papers:\n{context}\n\n"
                 "Question: {question}\n\n"
-                "Answer with citations and mention any relevant figures/images:"
+                "Answer with citations, give response in markdown format and mention any relevant figures/images:"
             ),
             input_variables=["context", "question"],
         )
-        
-        prompt = prompt_template.format(context=formatted_context, question=request.query)
+
+        prompt = prompt_template.format(
+            context=formatted_context, question=request.query
+        )
         response = llm.invoke(prompt)
         answer = response.content
-    
-    # Step 8: Format response
+
+    # Step 8: Format response with image URLs parsed from JSON
     source_docs = []
-    for doc in all_relevant_docs[:request.num_results]:
-        source_docs.append({
-            "page_content": doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content,
-            "metadata": {
-                "title": doc.metadata.get("title", "Unknown"),
-                "pmcid": doc.metadata.get("pmcid", "N/A"),
-                "source": doc.metadata.get("source", "Unknown"),
-                "image_urls": doc.metadata.get("image_urls", [])
+    for doc in all_relevant_docs[: request.num_results]:
+        doc_title = doc.metadata.get("title", "Unknown")
+        
+        # Parse image URLs from JSON string in metadata
+        image_urls_json = doc.metadata.get("image_urls_json", "")
+        try:
+            image_urls = json.loads(image_urls_json) if image_urls_json else []
+        except:
+            # Fallback to map if JSON parsing fails (for newly scraped papers)
+            image_urls = paper_images_map.get(doc_title, [])
+        
+        source_docs.append(
+            {
+                "page_content": doc.page_content[:500] + "..."
+                if len(doc.page_content) > 500
+                else doc.page_content,
+                "metadata": {
+                    "title": doc_title,
+                    "pmcid": doc.metadata.get("pmcid", "N/A"),
+                    "source": doc.metadata.get("source", "Unknown"),
+                    "image_urls": image_urls,
+                },
             }
-        })
-    
+        )
+
     return {
         "answer": answer,
         "source_documents": source_docs,
@@ -676,29 +642,29 @@ async def on_demand_search(request: OnDemandSearchQuery):
         "papers_newly_scraped": len(papers_to_scrape),
         "papers_already_loaded": len(loaded_papers),
         "query": request.query,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
+
 
 @app.post("/database/load-csv")
 async def load_csv_to_database():
     """Load CSV into SQLite database (without scraping)"""
     global db_manager
-    
+
     if not db_manager:
         db_manager = init_database()
-    
+
     try:
         stats = db_manager.load_csv(CSV_URL)
         return {
             "status": "success",
             "message": f"CSV loaded into database",
-            "stats": stats
+            "stats": stats,
         }
     except Exception as e:
         raise HTTPException(
-            status_code=500, 
-            detail=f"Error loading CSV: {str(e)}"
-        )
+            status_code=500, detail=f"Error loading CSV: {str(e)}")
+
 
 @app.post("/load-papers", response_model=LoadPapersResponse)
 async def load_papers(request: LoadPapersRequest, background_tasks: BackgroundTasks):
@@ -714,7 +680,8 @@ async def load_papers(request: LoadPapersRequest, background_tasks: BackgroundTa
     try:
         # Get unloaded papers from database
         if request.num_papers > 0:
-            papers_to_load = db_manager.get_unloaded_papers(limit=request.num_papers)
+            papers_to_load = db_manager.get_unloaded_papers(
+                limit=request.num_papers)
         else:
             papers_to_load = db_manager.get_unloaded_papers()
 
@@ -723,34 +690,34 @@ async def load_papers(request: LoadPapersRequest, background_tasks: BackgroundTa
                 status="success",
                 papers_loaded=0,
                 chunks_created=0,
-                message="All papers already loaded or no papers available. Load CSV first using /database/load-csv"
+                message="All papers already loaded or no papers available. Load CSV first using /database/load-csv",
             )
 
         docs = []
         papers_successfully_loaded = []
 
         for paper in papers_to_load:
-            title = paper['title']
-            article_url = paper['link']
-            pmcid = paper['pmcid']
+            title = paper["title"]
+            article_url = paper["link"]
+            pmcid = paper["pmcid"]
 
             print(f"Scraping: {title[:60]}...")
             result = scrape_article_text_with_images(article_url)
-            
+
             if not result:
                 print(f"  ❌ Failed to scrape")
                 continue
-            
+
             text, image_urls = result
 
-            # Create document
+            # Create document with image URLs as JSON string
             doc = Document(
                 page_content=text,
                 metadata={
                     "title": title,
                     "source": article_url,
                     "pmcid": pmcid or "",
-                    "image_urls": image_urls,  # Store image URLs
+                    "image_urls_json": json.dumps(image_urls) if image_urls else "",  # Store as JSON string
                 },
             )
             docs.append(doc)
@@ -760,8 +727,7 @@ async def load_papers(request: LoadPapersRequest, background_tasks: BackgroundTa
 
         if not docs:
             raise HTTPException(
-                status_code=500, 
-                detail="Failed to scrape any papers. Please try again."
+                status_code=500, detail="Failed to scrape any papers. Please try again."
             )
 
         # Split into chunks
@@ -772,6 +738,8 @@ async def load_papers(request: LoadPapersRequest, background_tasks: BackgroundTa
             separators=["\n\n", "\n", ". ", " ", ""],
         )
         chunks = splitter.split_documents(docs)
+        
+        # No need to filter metadata since we're using JSON strings for images
 
         # Create or update vector store
         if vector_store:
@@ -784,18 +752,25 @@ async def load_papers(request: LoadPapersRequest, background_tasks: BackgroundTa
         # Mark papers as loaded in database
         for i, paper in enumerate(papers_successfully_loaded):
             # Calculate chunks for this paper
-            paper_chunks = [c for c in chunks if c.metadata.get('title') == paper['title']]
+            paper_chunks = [
+                c for c in chunks if c.metadata.get("title") == paper["title"]
+            ]
             chunks_count = len(paper_chunks)
-            
+
             # Mark as loaded
-            db_manager.mark_as_loaded(paper['link'], chunks_created=chunks_count)
-            print(f"  📊 Marked as loaded: {paper['title'][:50]}... ({chunks_count} chunks)")
+            db_manager.mark_as_loaded(
+                paper["link"], chunks_created=chunks_count)
+            print(
+                f"  📊 Marked as loaded: {
+                    paper['title'][:50]}... ({chunks_count} chunks)"
+            )
 
         return LoadPapersResponse(
             status="success",
             papers_loaded=len(docs),
             chunks_created=len(chunks),
-            message=f"Successfully loaded {len(docs)} papers and created {len(chunks)} chunks",
+            message=f"Successfully loaded {len(docs)} papers and created {
+                len(chunks)} chunks",
         )
 
     except Exception as e:
@@ -807,9 +782,9 @@ async def load_papers(request: LoadPapersRequest, background_tasks: BackgroundTa
 async def reset_database():
     """Reset the vector database and SQLite tracking database"""
     global vector_store, db_manager
-    
+
     vector_store = None
-    
+
     if db_manager:
         db_manager.reset_database()
 
@@ -823,66 +798,63 @@ async def reset_database():
 async def get_database_stats():
     """Get SQLite database statistics"""
     if not db_manager:
-        raise HTTPException(status_code=404, detail="Database manager not initialized")
-    
+        raise HTTPException(
+            status_code=404, detail="Database manager not initialized")
+
     stats = db_manager.get_stats()
     return stats
 
 
 @app.get("/database/papers/loaded")
-async def get_loaded_papers_from_db(limit: int = Query(default=None, description="Limit number of results")):
-    """ Get papers that have been loaded """
+async def get_loaded_papers_from_db(
+    limit: int = Query(default=None, description="Limit number of results"),
+):
+    """Get papers that have been loaded"""
     if not db_manager:
-        raise HTTPException(status_code=404, detail="Database manager not initialized")
-    
+        raise HTTPException(
+            status_code=404, detail="Database manager not initialized")
+
     papers = db_manager.get_loaded_papers(limit=limit)
-    return {
-        "count": len(papers),
-        "papers": papers
-    }
+    return {"count": len(papers), "papers": papers}
 
 
 @app.get("/database/papers/unloaded")
-async def get_unloaded_papers_from_db(limit: int = Query(default=None, description="Limit number of results")):
+async def get_unloaded_papers_from_db(
+    limit: int = Query(default=None, description="Limit number of results"),
+):
     """Get papers that haven't been loaded yet"""
     if not db_manager:
-        raise HTTPException(status_code=404, detail="Database manager not initialized")
-    
+        raise HTTPException(
+            status_code=404, detail="Database manager not initialized")
+
     papers = db_manager.get_unloaded_papers(limit=limit)
-    return {
-        "count": len(papers),
-        "papers": papers
-    }
+    return {"count": len(papers), "papers": papers}
 
 
 @app.get("/database/papers/all")
 async def get_all_papers_from_db():
     """Get all papers with their status"""
     if not db_manager:
-        raise HTTPException(status_code=404, detail="Database manager not initialized")
-    
+        raise HTTPException(
+            status_code=404, detail="Database manager not initialized")
+
     papers = db_manager.get_all_papers()
-    return {
-        "count": len(papers),
-        "papers": papers
-    }
+    return {"count": len(papers), "papers": papers}
 
 
 @app.get("/database/papers/search")
 async def search_papers_in_db(
     query: str = Query(..., description="Search query"),
-    loaded_only: bool = Query(default=False, description="Only return loaded papers")
+    loaded_only: bool = Query(
+        default=False, description="Only return loaded papers"),
 ):
     """Search papers in database by title"""
     if not db_manager:
-        raise HTTPException(status_code=404, detail="Database manager not initialized")
-    
+        raise HTTPException(
+            status_code=404, detail="Database manager not initialized")
+
     papers = db_manager.search_papers(query, loaded_only=loaded_only)
-    return {
-        "query": query,
-        "count": len(papers),
-        "papers": papers
-    }
+    return {"query": query, "count": len(papers), "papers": papers}
 
 
 class AppendCSVRequest(BaseModel):
@@ -893,21 +865,19 @@ class AppendCSVRequest(BaseModel):
 async def append_csv_to_database(request: AppendCSVRequest):
     """Append papers from a new CSV file to the database"""
     if not db_manager:
-        raise HTTPException(status_code=404, detail="Database manager not initialized")
-    
+        raise HTTPException(
+            status_code=404, detail="Database manager not initialized")
+
     try:
         stats = db_manager.append_csv(request.csv_url)
         return {
             "status": "success",
             "message": f"CSV appended successfully",
-            "stats": stats
+            "stats": stats,
         }
     except Exception as e:
         raise HTTPException(
-            status_code=500, 
-            detail=f"Error appending CSV: {str(e)}"
-        )
-
+            status_code=500, detail=f"Error appending CSV: {str(e)}")
 
 
 @app.get("/models")
