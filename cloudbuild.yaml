@@ -1,0 +1,65 @@
+# Cloud Build configuration for NASA Backend
+# Automatically builds and deploys to Cloud Run
+
+steps:
+    # Step 1: Build the Docker image
+    - name: "gcr.io/cloud-builders/docker"
+      args:
+          - "build"
+          - "-t"
+          - "gcr.io/$PROJECT_ID/nasa-backend:$COMMIT_SHA"
+          - "-t"
+          - "gcr.io/$PROJECT_ID/nasa-backend:latest"
+          - "."
+      id: "build-image"
+
+    # Step 2: Push the Docker image to Container Registry
+    - name: "gcr.io/cloud-builders/docker"
+      args:
+          - "push"
+          - "gcr.io/$PROJECT_ID/nasa-backend:$COMMIT_SHA"
+      id: "push-image"
+
+    # Step 3: Push the latest tag
+    - name: "gcr.io/cloud-builders/docker"
+      args:
+          - "push"
+          - "gcr.io/$PROJECT_ID/nasa-backend:latest"
+      id: "push-latest"
+
+    # Step 4: Deploy to Cloud Run
+    - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+      entrypoint: gcloud
+      args:
+          - "run"
+          - "deploy"
+          - "nasa-backend"
+          - "--image=gcr.io/$PROJECT_ID/nasa-backend:$COMMIT_SHA"
+          - "--region=us-central1"
+          - "--platform=managed"
+          - "--allow-unauthenticated"
+          - "--port=8080"
+          - "--memory=2Gi"
+          - "--cpu=2"
+          - "--timeout=300"
+          - "--max-instances=10"
+          - "--set-env-vars=PORT=8080"
+      id: "deploy-cloud-run"
+
+# Images to be pushed to Container Registry
+images:
+    - "gcr.io/$PROJECT_ID/nasa-backend:$COMMIT_SHA"
+    - "gcr.io/$PROJECT_ID/nasa-backend:latest"
+
+# Build options
+options:
+    machineType: "N1_HIGHCPU_8"
+    logging: CLOUD_LOGGING_ONLY
+
+# Timeout for the entire build
+timeout: "1200s"
+
+# Substitutions (can be overridden)
+substitutions:
+    _REGION: us-central1
+    _SERVICE_NAME: nasa-backend

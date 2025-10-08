@@ -594,10 +594,12 @@ async def search_papers(request: OnDemandSearchQuery):
             template=(
                 "You are an expert assistant analyzing NASA space biology research papers. "
                 "Use the following papers to answer the question. "
-                "ALWAYS cite paper Title and PMCID. If images are available, mention them.\n\n"
+                "ALWAYS cite paper Title and PMCID.\n\n"
+                "When referencing images/figures from papers, use this EXACT format:\n"
+                "![Figure from PMCID](IMAGE_URL)\n\n"
                 "Available Papers:\n{context}\n\n"
                 "Question: {question}\n\n"
-                "Answer with citations, give response in markdown format and mention any relevant figures/images:"
+                "Answer with citations in markdown format. When mentioning figures, use the markdown image syntax above with actual image URLs from the context."
             ),
             input_variables=["context", "question"],
         )
@@ -643,6 +645,228 @@ async def search_papers(request: OnDemandSearchQuery):
         "papers_already_loaded": len(loaded_papers),
         "query": request.query,
         "timestamp": datetime.now().isoformat(),
+    }
+
+
+@app.post("/workflow")
+async def generate_workflow(request: OnDemandSearchQuery):
+    """
+    Generate intelligent ReactFlow workflow diagram using LLM analysis
+    Returns nodes and edges representing paper relationships and research methodology flow
+    """
+    global secondary_vector_store, vector_store, db_manager
+
+    # Search for relevant papers
+    relevant_docs = []
+    
+    if vector_store:
+        try:
+            retriever = vector_store.as_retriever(
+                search_type="similarity", search_kwargs={"k": request.num_results}
+            )
+            relevant_docs = retriever.invoke(request.query)
+        except Exception as e:
+            print(f"Error searching main vector store: {e}")
+    
+    if len(relevant_docs) < request.num_results and secondary_vector_store:
+        retriever = secondary_vector_store.as_retriever(
+            search_type="similarity", search_kwargs={"k": request.num_results}
+        )
+        relevant_docs = retriever.invoke(request.query)
+
+    if not relevant_docs:
+        raise HTTPException(
+            status_code=404,
+            detail="No papers found for this query"
+        )
+
+    # Use LLM to analyze relationships if API key provided
+    workflow_analysis = None
+    if request.use_llm and request.google_api_key:
+        try:
+            llm = ChatGoogleGenerativeAI(
+                model=request.model_name,
+                temperature=0.2,
+                google_api_key=request.google_api_key,
+            )
+            
+            # Format paper information for LLM
+            papers_info = []
+            for idx, doc in enumerate(relevant_docs):
+                title = doc.metadata.get("title", "Unknown Title")
+                pmcid = doc.metadata.get("pmcid", "N/A")
+                content_preview = doc.page_content[:600]
+                papers_info.append(f"[Paper {idx}]\nTitle: {title}\nPMCID: {pmcid}\nContent Preview: {content_preview}...")
+            
+            workflow_prompt = f"""Analyze these research papers and extract components for a ReactFlow diagram.
+
+Query: "{request.query}"
+
+Papers:
+{chr(10).join(papers_info)}
+
+Extract and return a JSON object with this EXACT structure:
+{{
+    "papers": [
+        {{"id": "paperA", "title": "Paper title (max 45 chars)", "pmcid": "PMC123", "author": "Dr. Name", "topic": "Research Topic", "method": "Methodology", "result": "Key Finding"}}
+    ],
+    "citations": [
+        {{"from": "paperB", "to": "paperA", "reason": "How paperB cites paperA"}}
+    ]
+}}
+
+Extraction Rules:
+1. **Papers**: For each paper extract:
+   - id: Use format "paperA", "paperB", "paperC", etc.
+   - title: Paper title (max 45 chars)
+   - pmcid: PMCID from metadata
+   - author: Primary author name (e.g., "Dr. Rao", "Prof. Smith")
+   - topic: Main research topic (max 40 chars, e.g., "Gravity Response", "Space Radiation")
+   - method: Research methodology (max 40 chars, e.g., "Hydroponics", "Genome Sequencing")
+   - result: Key finding (max 45 chars, e.g., "Enhanced Yield", "Stable Repair Mechanism")
+
+2. **Citations**: Only if papers reference each other:
+   - from: Paper ID that cites
+   - to: Paper ID being cited
+   - reason: Brief context (max 40 chars)
+
+Keep labels concise and scientific.
+Return ONLY valid JSON, no markdown, no explanation."""
+
+            response = llm.invoke(workflow_prompt)
+            # Parse JSON from response
+            import re
+            json_match = re.search(r'\{.*\}', response.content, re.DOTALL)
+            if json_match:
+                workflow_analysis = json.loads(json_match.group())
+                print(f"✅ LLM workflow analysis successful")
+        except Exception as e:
+            print(f"Error in LLM workflow analysis: {e}")
+            workflow_analysis = None
+
+    # Generate ReactFlow nodes and edges
+    nodes = []
+    edges = []
+    
+    # Layout configuration
+    y_base = 100
+    y_spacing = 150
+    
+    if workflow_analysis and "papers" in workflow_analysis:
+        papers_data = workflow_analysis.get("papers", [])
+        citations_data = workflow_analysis.get("citations", [])
+        
+        # Generate nodes for each paper and its attributes
+        for idx, paper in enumerate(papers_data):
+            paper_id = paper.get("id", f"paper{chr(65+idx)}")  # paperA, paperB, etc.
+            y_pos = y_base + (idx * y_spacing)
+            
+            # Column 1: Paper node (x=100)
+            nodes.append({
+                "id": paper_id,
+                "type": "default",
+                "data": {"label": f"Paper: {paper.get('title', 'Unknown')[:45]}"},
+                "position": {"x": 100, "y": y_pos}
+            })
+            
+            # Column 2: Author node (x=350)
+            author_id = f"author{chr(65+idx)}"
+            author_name = paper.get("author", "Unknown Author")
+            nodes.append({
+                "id": author_id,
+                "type": "default",
+                "data": {"label": f"Author: {author_name}"},
+                "position": {"x": 350, "y": y_pos}
+            })
+            edges.append({
+                "id": f"e_{paper_id}_{author_id}",
+                "source": paper_id,
+                "target": author_id,
+                "label": "Authored by"
+            })
+            
+            # Column 3: Topic node (x=600)
+            topic_id = f"topic{chr(65+idx)}"
+            topic_name = paper.get("topic", "Research Topic")
+            nodes.append({
+                "id": topic_id,
+                "type": "default",
+                "data": {"label": f"Topic: {topic_name}"},
+                "position": {"x": 600, "y": y_pos}
+            })
+            edges.append({
+                "id": f"e_{paper_id}_{topic_id}",
+                "source": paper_id,
+                "target": topic_id,
+                "label": "Focuses on"
+            })
+            
+            # Column 4: Method node (x=850)
+            method_id = f"method{chr(65+idx)}"
+            method_name = paper.get("method", "Methodology")
+            nodes.append({
+                "id": method_id,
+                "type": "default",
+                "data": {"label": f"Method: {method_name}"},
+                "position": {"x": 850, "y": y_pos}
+            })
+            edges.append({
+                "id": f"e_{paper_id}_{method_id}",
+                "source": paper_id,
+                "target": method_id,
+                "label": "Uses"
+            })
+            
+            # Column 5: Result node (x=1100)
+            result_id = f"result{chr(65+idx)}"
+            result_finding = paper.get("result", "Finding")
+            nodes.append({
+                "id": result_id,
+                "type": "default",
+                "data": {"label": f"Results: {result_finding}"},
+                "position": {"x": 1100, "y": y_pos}
+            })
+            edges.append({
+                "id": f"e_{paper_id}_{result_id}",
+                "source": paper_id,
+                "target": result_id,
+                "label": "Finds"
+            })
+        
+        # Add citation edges between papers
+        for citation in citations_data:
+            from_paper = citation.get("from")
+            to_paper = citation.get("to")
+            
+            if from_paper and to_paper:
+                # Verify both papers exist in nodes
+                if any(n["id"] == from_paper for n in nodes) and any(n["id"] == to_paper for n in nodes):
+                    edges.append({
+                        "id": f"e_{from_paper}_cites_{to_paper}",
+                        "source": from_paper,
+                        "target": to_paper,
+                        "label": "Cites"
+                    })
+    else:
+        # Fallback: Simple paper list if no LLM analysis
+        for idx, doc in enumerate(relevant_docs):
+            paper_id = f"paper{chr(65+idx)}"
+            title = doc.metadata.get("title", "Unknown Title")
+            y_pos = y_base + (idx * y_spacing)
+            
+            nodes.append({
+                "id": paper_id,
+                "type": "default",
+                "data": {"label": f"Paper: {title[:45]}"},
+                "position": {"x": 100, "y": y_pos}
+            })
+    
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "query": request.query,
+        "num_papers": len(relevant_docs),
+        "analysis": workflow_analysis
     }
 
 

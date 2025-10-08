@@ -263,13 +263,13 @@ Return top 10 filtered chunks
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Your Question                                          │
-│  "How does microgravity affect bone density?"          │
+│  "How does microgravity affect bone density?"           │
 └──────────────────────┬──────────────────────────────────┘
                        │
                        ↓ Convert to vector
 ┌─────────────────────────────────────────────────────────┐
 │  Question Vector                                        │
-│  [0.25, 0.82, -0.31, ..., 0.49]                        │
+│  [0.25, 0.82, -0.31, ..., 0.49]                         │
 └──────────────────────┬──────────────────────────────────┘
                        │
                        ↓ Search ChromaDB
@@ -282,9 +282,9 @@ Return top 10 filtered chunks
                        ↓ Retrieve top 50 (if filter enabled)
 ┌─────────────────────────────────────────────────────────┐
 │  Retrieved Chunks (Before Filter)                       │
-│  1. Chunk about microgravity (0.1 similarity)          │
-│  2. Chunk about bone loss (0.15 similarity)            │
-│  3. Chunk about Bion-M (0.2 similarity)                │
+│  1. Chunk about microgravity (0.1 similarity)           │
+│  2. Chunk about bone loss (0.15 similarity)             │
+│  3. Chunk about Bion-M (0.2 similarity)                 │
 │  ...                                                    │
 │  50. Some other chunk (0.8 similarity)                  │
 └──────────────────────┬──────────────────────────────────┘
